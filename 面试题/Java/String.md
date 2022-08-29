@@ -30,7 +30,7 @@ StringBuffer是线程安全的
     }
 ```
 
-![image-20220820102304885](assets/image-20220820102304885.png)
+![image-20220821181941589](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image-20220821181941589.5yv1wv1mekw0.webp)
 
 ### String.intern
 
