@@ -1,5 +1,7 @@
 [微服务技术栈 - 乐心湖's Blog | 技术小白的技术博客 (xn2001.com)](https://www.xn2001.com/archives/663.html)
 
+[02-Nacos配置管理-Nacos实现配置管理_哔哩哔哩_bilibili](https://www.bilibili.com/video/BV1LQ4y127n4?p=25&vd_source=c65d1a9fa31319a69b57c9ae59a0b0d9)
+
 ## 微服务入门
 
 ### 微服务技术栈
@@ -722,3 +724,156 @@ spring:
    * Nacos集群默认采用AP方式，当集群中存在非临时实例时，采用CP模式；Eureka采用AP方式
 
 ## Nacos配置中心
+
+![20220830094832](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/20220830094832.sgms3hdm0sw.gif)
+
+### 统一配置管理
+
+当微服务部署的实例越来越多，达到数十、数百时，逐个修改微服务配置就会让人抓狂，而且很容易出错。**我们需要一种统一配置管理方案，可以集中管理所有实例的配置。**
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.560gdgarsoo0.webp)
+
+Nacos 一方面可以将配置集中管理，另一方可以在配置变更时，及时通知微服务，**实现配置的热更新。**
+
+#### 配置获取步骤
+
+![20220830100505](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/20220830100505.6pkjy61r5q80.gif)
+
+### 创建配置
+
+在 Nacos 控制面板中添加配置文件
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.2e9qzviw7sw.webp)
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.2giiaz16r2ck.webp)
+
+**配置内容：**
+
+举例：
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.6iedqgc3cxg0.webp)
+
+**注意**：项目的核心配置，需要热更新的配置才有放到 nacos 管理的必要。基本不会变更的一些配置（例如数据库连接）还是保存在微服务本地比较好。
+
+### 拉取配置
+
+首先我们需要了解 Nacos 读取配置文件的环节是在哪一步，在没加入 Nacos 配置之前，获取配置是这样：
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.20xk4ic4vajk.webp)
+
+加入 Nacos 配置，它的读取是在 application.yml 之前的：
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.qn93hldzxjk.webp)
+
+这时候如果把 nacos 地址放在 application.yml 中，显然是不合适的，**Nacos 就无法根据地址去获取配置了。**
+
+因此，nacos 地址必须放在优先级最高的 bootstrap.yml 文件。
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.f63inpd3yrk.webp)
+
+**引入 nacos-config 依赖**
+
+首先，在 user-service 服务中，引入 nacos-config 的客户端依赖：
+
+```xml
+<!--nacos配置管理依赖-->
+<!-- https://mvnrepository.com/artifact/com.alibaba.cloud/spring-cloud-starter-alibaba-nacos-config -->
+<dependency>
+    <groupId>com.alibaba.cloud</groupId>
+    <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
+    <version>2.2.7.RELEASE</version>
+</dependency>
+```
+
+**添加 bootstrap.yml**
+
+然后，在 user-service 中添加一个 bootstrap.yml 文件，内容如下：
+
+```yaml
+spring:
+  application:
+    name: userservice # 服务名称
+  profiles:
+    active: dev #开发环境，这里是dev
+  cloud:
+    nacos:
+      server-addr: localhost:8848 # Nacos地址
+      config:
+        file-extension: yaml # 文件后缀名
+```
+
+根据 spring.cloud.nacos.server-addr 获取 nacos地址，再根据`${spring.application.name}-${spring.profiles.active}.${spring.cloud.nacos.config.file-extension}`作为文件id，来读取配置。
+
+在这个例子例中，就是去读取 `userservice-dev.yaml`
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.53nvh0rzxi80.webp)
+
+与Nacos中的配置一致：
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.14cy8rltwcio.webp)
+
+使用代码来验证是否拉取成功
+
+在 user-service 中的 UserController 中添加业务逻辑，读取 pattern.dateformat 配置并使用：
+
+```java
+@Value("${pattern.dateformat}")
+private String dateformat;
+
+@GetMapping("now")
+public String now(){
+    //格式化时间
+    return LocalDateTime.now().format(DateTimeFormatter.ofPattern(dateformat));
+}
+```
+
+启动服务后，访问：http://localhost:8081/user/now
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.1eeieaq84i8w.webp)
+
+### 配置热更新
+
+我们最终的目的，是修改 nacos 中的配置后，微服务中无需重启即可让配置生效，也就是**配置热更新**。
+
+有两种方式：1. 用 `@value` 读取配置时，搭配 `@RefreshScope`；2. 直接用 `@ConfigurationProperties` 读取配置
+
+#### @RefreshScope
+
+方式一：在 `@Value` 注入的变量所在类上添加注解 `@RefreshScope`
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.101o8tmbtfu8.webp)
+
+#### @ConfigurationProperties
+
+方式二：使用 `@ConfigurationProperties` 注解读取配置文件，就不需要加 `@RefreshScope` 注解。
+
+在 user-service 服务中，添加一个 PatternProperties 类，读取 `patterrn.dateformat` 属性
+
+```java
+@Data
+@Component
+@ConfigurationProperties(prefix = "pattern")
+public class PatternProperties {
+    public String dateformat;
+}
+```
+
+```java
+@Autowired
+private PatternProperties patternProperties;
+
+@GetMapping("now2")
+public String now2(){
+    //格式化时间
+    return LocalDateTime.now().format(DateTimeFormatter.ofPattern(patternProperties.dateformat));
+}
+```
+
+### 配置共享
+
+其实在服务启动时，nacos 会读取多个配置文件，例如：
+
+- `[spring.application.name]-[spring.profiles.active].yaml`，例如：userservice-dev.yaml
+- `[spring.application.name].yaml`，例如：userservice.yaml
+
+这里的 `[spring.application.name].yaml` 不包含环境，**因此可以被多个环境共享**。
