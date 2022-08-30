@@ -1,3 +1,5 @@
+[微服务技术栈 - 乐心湖's Blog | 技术小白的技术博客 (xn2001.com)](https://www.xn2001.com/archives/663.html)
+
 ## 微服务入门
 
 ### 微服务技术栈
@@ -423,3 +425,300 @@ userservice: # 给需要调用的微服务配置负载均衡规则，orderservic
 #### 饥饿加载
 
 当我们启动 orderservice，第一次访问时，时间消耗会大很多，这是因为 Ribbon 懒加载的机制。
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.77fti1p7sbc0.webp)
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.7816p9xs1yo0.webp)
+
+Ribbon默认是采用懒加载，即第一次访问时才会去创建LoadBalanceClient，请求时间会很长。而饥饿加载则会在项目启动时创建，降低第一次访问的耗时，通过下面配置开启饥饿加载：
+
+```yaml
+ribbon:
+  eager-load:
+    enabled: true
+    clients: userservice # 项目启动时直接去拉取userservice的集群，多个用","隔开
+```
+
+#### 总结
+
+1. Ribbon负载均衡规则
+   * 规则接口是IRule
+   * 默认实现是ZoneAvoidanceRule，根据zone选择服务列表，然后轮询
+2. 负载均衡自定义方式
+   * 代码方式︰配置灵活，但修改时需要重新打包发布
+   * 配置方式:直观，方便，无需重新打包发布，但是无法做全局配置。
+3. 饥饿加载
+   * 开启饥饿加载
+   * 指定饥饿加载的微服务名称
+
+## Nacos注册中心
+
+### 下载安装
+
+> 地址：[alibaba/nacos: an easy-to-use dynamic service discovery, configuration and service management platform for building cloud native applications. (github.com)](https://github.com/alibaba/nacos)
+
+下载、解压、启动Nacos
+
+启动命令：
+
+```bash
+startup.cmd -m standalone
+```
+
+> 访问：http://localhost:8848/nacos/
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.7hflulyqbkk0.webp)
+
+### 服务注册
+
+这里上来就直接服务注册，很多东西可能有疑惑，其实 Nacos 本身就是一个 SprintBoot 项目，这点你从启动的控制台打印就可以看出来，所以就不再需要去额外搭建一个像 Eureka 的注册中心。
+
+#### 引入依赖
+
+1. 在 cloud-demo 父工程中引入 Spring Cloud Alibaba 的依赖：地址：[Maven Repository: com.alibaba.cloud » spring-cloud-alibaba-dependencies (mvnrepository.com)](https://mvnrepository.com/artifact/com.alibaba.cloud/spring-cloud-alibaba-dependencies)
+
+```xml
+<!-- https://mvnrepository.com/artifact/com.alibaba.cloud/spring-cloud-alibaba-dependencies -->
+<dependency>
+    <groupId>com.alibaba.cloud</groupId>
+    <artifactId>spring-cloud-alibaba-dependencies</artifactId>
+    <version>2.2.7.RELEASE</version>
+    <type>pom</type>
+    <scope>import</scope>
+</dependency>
+```
+
+2. 添加nacos的客户端依赖，地址：[Maven Repository: com.alibaba.cloud » spring-cloud-starter-alibaba-nacos-discovery (mvnrepository.com)](https://mvnrepository.com/artifact/com.alibaba.cloud/spring-cloud-starter-alibaba-nacos-discovery)
+
+```xml
+<!-- https://mvnrepository.com/artifact/com.alibaba.cloud/spring-cloud-starter-alibaba-nacos-discovery -->
+<dependency>
+    <groupId>com.alibaba.cloud</groupId>
+    <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+    <version>2.2.7.RELEASE</version>
+</dependency>
+```
+
+项目重新启动后，可以看到服务都被注册进了 Nacos
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.7i85tbknnvk0.webp)
+
+### 分级存储模型
+
+一个**服务**可以有多个**实例**，例如我们的 user-service，可以有：
+
+- 127.0.0.1:8081
+- 127.0.0.1:8082
+- 127.0.0.1:8083
+
+假如这些实例分布于全国各地的不同机房，例如：
+
+- 127.0.0.1:8081，在上海机房
+- 127.0.0.1:8082，在上海机房
+- 127.0.0.1:8083，在杭州机房
+
+Nacos就将同一机房内的实例，划分为一个**集群**。
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.7jnglsj5mw40.webp)
+
+微服务互相访问时，应该尽可能访问同集群实例，因为本地访问速度更快。**当本集群内不可用时，才访问其它集群。**例如：杭州机房内的 order-service 应该优先访问同机房的 user-service。
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.1qe2u2qg2n6o.webp)
+
+### 配置集群
+
+接下来我们给 user-service **配置集群**
+
+修改 user-service 的 application.yml 文件，添加集群配置：
+
+```yaml
+spring:
+  cloud:
+    nacos:
+      server-addr: localhost:8848
+      discovery:
+        cluster-name: HZ # 集群名称 HZ杭州
+```
+
+重启两个 user-service 实例后，我们再去启动一个上海集群的实例。
+
+```
+-Dserver.port=8083 -Dspring.cloud.nacos.discovery.cluster-name=SH
+```
+
+查看 nacos 控制台
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.59ejt1mw4tk0.webp)
+
+### NacosRule负载均衡
+
+Ribbon的默认实现 `ZoneAvoidanceRule` 并不能实现根据同集群优先来实现负载均衡，我们把规则改成 **NacosRule** 即可。我们是用 orderservice 调用 userservice，所以在 orderservice 配置规则。
+
+1. 代码形式
+
+```java
+@Bean
+public IRule iRule(){
+    //默认为轮询规则，这里自定义为随机规则
+    return new NacosRule();
+}
+```
+
+2. 配置形式
+
+   * 另外，你同样可以使用配置的形式来完成，具体参考上面的 Ribbon 栏目。
+
+   ```yaml
+   userservice:
+     ribbon:
+       NFLoadBalancerRuleClassName: com.alibaba.cloud.nacos.ribbon.NacosRule #负载均衡规则 
+   ```
+
+   * 然后，再对 orderservice 配置集群。
+
+   ```yaml
+   spring:
+     cloud:
+       nacos:
+         server-addr: localhost:8848
+         discovery:
+           cluster-name: HZ # 集群名称
+   ```
+
+   现在启动了四个服务，分别是：
+
+   - orderservice - HZ
+   - userservice - HZ
+   - userservice1 - HZ
+   - userservice2 - SH
+
+现在访问地址：http://localhost:8080/order/101
+
+在访问中我们发现，只有同在一个 HZ 集群下的 userservice、userservice1 会被调用，并且是随机的。
+
+我们试着把 userservice、userservice1 停掉。依旧可以访问。
+
+在 userservice2 控制台可以看到发出了一串的警告，因为 orderservice 本身是在 HZ 集群的，HZ 集群没有了 userservice，就会去别的集群找。
+
+### 权重配置
+
+实际部署中会出现这样的场景：
+
+服务器设备性能有差异，部分实例所在机器性能较好，另一些较差，我们希望性能好的机器承担更多的用户请求。但默认情况下NacosRule 是同集群内随机挑选，不会考虑机器的性能问题。
+
+因此，Nacos 提供了**权重配置来控制访问频率**，0~1 之间，权重越大则访问频率越高，权重修改为 0，则该实例永远不会被访问。
+
+在 Nacos 控制台，找到 user-service 的实例列表，点击编辑，即可修改权重。
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.4ptqtblh7hk0.webp)
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.4dqfodz5ldw0.webp)
+
+另外，在服务升级的时候，有一种较好的方案：我们也可以通过调整权重来进行平滑升级，例如：先把 userservice 权重调节为 0，让用户先流向 userservice2、userservice3，升级 userservice后，再把权重从 0 调到 0.1，让一部分用户先体验，用户体验稳定后就可以上调权重。
+
+### 环境隔离-namespace
+
+Nacos中服务存储和数据存储的最外层都是一个名为namespace的东西，用来做最外层隔离
+
+- Nacos 中可以有多个 namespace
+- namespace 下可以有 group、service 等
+- 不同 namespace 之间**相互隔离**，例如不同 namespace 的服务互相不可见
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.62xdcd2wqiw0.webp)
+
+#### 创建namespace
+
+默认情况下，所有 service、data、group 都在同一个 namespace，名为 public(保留空间)：
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.2ox6q422wpg0.webp)
+
+我们可以点击页面新增按钮，添加一个 namespace：
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.69kjfh17lt80.webp)
+
+然后，填写表单：
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.6vmngvjubrg0.webp)
+
+就能在页面看到一个新的 namespace：
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.5b2bfx52aq00.webp)
+
+#### 配置namespace
+
+给微服务配置 namespace 只能通过修改配置来实现。
+
+例如，修改 order-service 的 application.yml 文件：
+
+```yaml
+spring:
+  cloud:
+    nacos:
+      server-addr: localhost:8848
+      discovery:
+        cluster-name: HZ
+        namespace: 492a7d5d-237b-46a1-a99a-fa8e98e4b0f9 # 命名空间ID
+```
+
+重启 order-service 后，访问控制台。
+
+**public**
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.1fljfkzoh4dc.webp)
+
+**dev**
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.2x6cn4nmkom0.webp)
+
+此时访问 order-service，因为 namespace 不同，会导致找不到 userservice，控制台会报错：
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.44kz3i6i19k0.webp)
+
+#### 总结：
+
+Nacos环境隔离
+
+* namespace用来做环境隔离
+* 每个namespace都有唯一id
+* 不同namespace下的服务不可见
+
+### 临时实例
+
+Nacos 的服务实例分为两种类型：
+
+- **临时实例**：如果实例宕机超过一定时间，会从服务列表剔除，**默认的类型**。
+- 非临时实例：如果实例宕机，不会从服务列表剔除，也可以叫永久实例。
+
+配置一个服务实例为永久实例：
+
+```yaml
+spring:
+  cloud:
+    nacos:
+      discovery:
+        ephemeral: false # 设置为非临时实例
+```
+
+另外，Nacos 集群**默认采用AP方式(可用性)**，当集群中存在非临时实例时，**采用CP模式(一致性)**；而 Eureka 采用AP方式，不可切换。（这里说的是 CAP 原理，后面会写到）
+
+## Eureka和Nacos注册中心的区别
+
+### Nacos注册中心原理
+
+#### nacos注册中心细节分析
+
+![image](https://cdn.staticaly.com/gh/bolishitoumingde/hexo_img@main/image.30kcj42umey0.webp)
+
+### 总结
+
+1. Nacos与eureka的共同点
+  * 都支持服务注册和服务拉取
+  * 都支持服务提供者心跳方式做健康检测
+
+2. Nacos与Eureka的区别
+   * Nacos支持服务端主动检测提供者状态:临时实例采用心跳模式，非临时实例采用主动检测模式
+   * 临时实例心跳不正常会被剔除，非临时实例则不会被剔除
+   * Nacos支持服务列表变更的消息推送模式，服务列表更新更及时
+   * Nacos集群默认采用AP方式，当集群中存在非临时实例时，采用CP模式；Eureka采用AP方式
+
+## Nacos配置中心
